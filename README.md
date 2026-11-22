@@ -70,18 +70,9 @@ segment, 21% fairly clearly, and 17% are borderline between two.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    A[Raw data<br/>8,950 x 17] --> B[Impute missing<br/>median + flag]
-    B --> C[log1p on skewed<br/>money/count columns]
-    C --> D[Feature engineering<br/>22 features]
-    D --> E[Standardise]
-    E --> F[PCA 90% variance<br/>9 dims]
-    F --> G[Choose k<br/>3-8]
-    G --> H[K-Means k=7]
-    H --> I[Profile and name<br/>segments]
-    I --> J[Flask API +<br/>web app]
-```
+<p align="center">
+  <img src="docs/images/how-it-works.svg" alt="How it works: the training pipeline (preprocessing, choosing k, K-Means, profiling, model store) and the serving + prediction flow (web app, Flask API, saved pipeline, JSON response)" width="100%">
+</p>
 
 1. **Missing values** - `MINIMUM_PAYMENTS` (313 rows) and `CREDIT_LIMIT` (1 row) are filled with the median, plus a
    missing-flag (a missing minimum payment is informative). KNN imputation was tested and gave the same result.
