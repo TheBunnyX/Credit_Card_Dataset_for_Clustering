@@ -1,0 +1,982 @@
+{% macro t(th, en) %}<span lang="th">{{ th }}</span><span lang="en">{{ en }}</span>{% endmacro -%}
+<!doctype html>
+<html lang="th" data-lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Customer Segments</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="48x48">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+  <meta name="theme-color" content="#1b2330">
+  <script>
+    // pick the language before first paint: ?lang= > saved choice > Thai
+    (function () {
+      var lang = new URLSearchParams(location.search).get('lang');
+      if (lang !== 'th' && lang !== 'en') { try { lang = localStorage.getItem('lang'); } catch (e) { lang = null; } }
+      if (lang !== 'th' && lang !== 'en') lang = 'th';
+      document.documentElement.setAttribute('data-lang', lang);
+      document.documentElement.lang = lang;
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #f5f6f8; --surface: #ffffff; --surface-2: #f0f2f5; --text: #1b2330; --muted: #5d6878;
+      --line: #e1e5eb; --accent: #3b6cf0; --accent-soft: #e8eefe; --up: #12805c; --down: #b4401f;
+      --warn-bg: #fff6e0; --warn-text: #7a5300; --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #12161c; --surface: #1b2129; --surface-2: #232a34; --text: #e7ebf1; --muted: #9aa5b5;
+        --line: #2d3642; --accent: #7d9dff; --accent-soft: #1f2a44; --up: #4cc79a; --down: #ff8a65;
+        --warn-bg: #3a2f12; --warn-text: #f3d27a; --shadow: none;
+      }
+    }
+    /* language switching: only the active language is shown */
+    html[data-lang="th"] [lang="en"], html[data-lang="en"] [lang="th"] { display: none !important; }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text);
+      font-family: "Noto Sans Thai", system-ui, -apple-system, "Segoe UI", sans-serif; line-height: 1.6; }
+    main { max-width: 1120px; margin: 0 auto; padding: 24px 16px 64px; }
+    h1 { margin: 0; font-size: 1.7rem; line-height: 1.3; }
+    h2 { margin: 0 0 6px; font-size: 1.25rem; }
+    h3 { margin: 0; font-size: 1.05rem; }
+    p { margin: 0 0 10px; }
+    .muted { color: var(--muted); }
+    .small { font-size: .88rem; }
+    .lead { font-size: 1.1rem; margin-top: 6px; }
+    .topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+
+    .langs { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex: none; background: var(--surface); }
+    .langs button { border: 0; background: none; color: var(--muted); font: inherit; font-weight: 600; padding: 6px 12px; cursor: pointer; }
+    .langs button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+    .langs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+    .tabs { display: flex; gap: 4px; margin: 20px 0 18px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab { flex: none; border: 0; background: none; color: var(--muted); font: inherit; font-weight: 600;
+      padding: 10px 14px; border-bottom: 3px solid transparent; cursor: pointer; white-space: nowrap; }
+    .tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
+    .panel[hidden] { display: none; }
+
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; box-shadow: var(--shadow); }
+    .grid { display: grid; gap: 16px; }
+    .g2 { grid-template-columns: 1fr 1fr; }
+    .g3 { grid-template-columns: repeat(3, 1fr); }
+    @media (max-width: 820px) { .g2, .g3 { grid-template-columns: 1fr; } }
+
+    .kpi .label { color: var(--muted); font-size: .9rem; }
+    .kpi .value { font-size: 1.8rem; font-weight: 700; line-height: 1.2; }
+    .kpi .sub { font-size: .9rem; color: var(--muted); }
+    .note { background: var(--warn-bg); color: var(--warn-text); border-radius: 10px; padding: 12px 14px; font-size: .93rem; }
+
+    .seg-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+    @media (max-width: 360px) { .seg-grid { grid-template-columns: 1fr; } }
+    .seg { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 10px; }
+    .seg::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 6px; background: var(--c); }
+    .seg-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+    .seg .en-sub { font-size: .8rem; color: var(--muted); }
+    .pct { font-weight: 700; font-size: 1.25rem; color: var(--c); white-space: nowrap; }
+    .bar { height: 6px; background: var(--surface-2); border-radius: 99px; overflow: hidden; }
+    .bar > span { display: block; height: 100%; background: var(--c); border-radius: 99px; }
+    .badges { display: flex; flex-wrap: wrap; gap: 6px; }
+    .badge { font-size: .82rem; padding: 2px 10px; border-radius: 99px; background: var(--surface-2); }
+    .badge.up { color: var(--up); } .badge.down { color: var(--down); }
+    .todo { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; font-size: .92rem; }
+    .todo b { display: block; font-size: .82rem; color: var(--muted); font-weight: 600; }
+    .link-btn { align-self: flex-start; border: 1px solid var(--line); background: var(--surface); color: var(--accent);
+      font: inherit; font-size: .9rem; padding: 6px 12px; border-radius: 8px; cursor: pointer; margin-top: auto; }
+    .link-btn:hover { background: var(--accent-soft); }
+
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip { border: 1px solid var(--line); background: var(--surface); color: var(--text); font: inherit; font-size: .9rem;
+      padding: 6px 12px; border-radius: 99px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+    .chip:hover { border-color: var(--c); }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); flex: none; display: inline-block; }
+    .fields { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); margin-top: 12px; }
+    .field label { display: block; font-weight: 600; font-size: .92rem; }
+    .field .hint { display: block; color: var(--muted); font-size: .8rem; margin-bottom: 4px; }
+    .field input { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--bg); color: var(--text); font: inherit; }
+    .field input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+    details { margin-top: 16px; border-top: 1px dashed var(--line); padding-top: 10px; }
+    summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+    .primary { margin-top: 18px; padding: 11px 22px; border: 0; border-radius: 8px; background: var(--accent); color: #fff;
+      font: inherit; font-weight: 600; cursor: pointer; }
+    .primary[disabled] { opacity: .6; cursor: wait; }
+    .result { display: none; margin-top: 18px; border-left: 6px solid var(--c); }
+    .result.show { display: block; }
+    .result .seg-name { font-size: 1.35rem; font-weight: 700; color: var(--c); }
+    .meter { height: 10px; background: var(--surface-2); border-radius: 99px; overflow: hidden; margin: 6px 0 2px; }
+    .meter > span { display: block; height: 100%; background: var(--c); }
+    .reasons { margin: 6px 0 0; padding-left: 0; list-style: none; }
+    .reasons li { padding: 2px 0; }
+    .reasons .up { color: var(--up); } .reasons .down { color: var(--down); }
+    .error { color: var(--down); font-weight: 600; margin-top: 12px; }
+
+    .flow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 18px; }
+    .flow a { text-decoration: none; color: var(--text); background: var(--surface); border: 1px solid var(--line);
+      padding: 4px 10px; border-radius: 99px; font-size: .88rem; }
+    .flow a:hover { border-color: var(--accent); color: var(--accent); }
+    .flow .arrow { color: var(--muted); }
+    .steps { list-style: none; margin: 0; padding: 0; counter-reset: s; }
+    .step { position: relative; padding: 0 0 22px 56px; counter-increment: s; scroll-margin-top: 16px; }
+    .step::before { content: counter(s); position: absolute; left: 0; top: 0; width: 38px; height: 38px; border-radius: 50%;
+      background: var(--accent); color: #fff; font-weight: 700; display: grid; place-items: center; }
+    .step::after { content: ""; position: absolute; left: 18px; top: 42px; bottom: 4px; width: 2px; background: var(--line); }
+    .step:last-child::after { display: none; }
+    .step .card { padding: 14px 16px; }
+    .why { font-size: .9rem; color: var(--muted); margin-top: 4px; }
+    .fact { display: inline-block; background: var(--accent-soft); color: var(--accent); border-radius: 6px; padding: 1px 8px;
+      font-size: .85rem; font-weight: 600; margin: 2px 4px 2px 0; }
+
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th, td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-weight: 600; color: var(--muted); }
+    tr.chosen td { background: var(--accent-soft); font-weight: 600; }
+    .scroll { overflow-x: auto; }
+    code, pre { font-family: ui-monospace, Consolas, monospace; font-size: .85rem; }
+    pre { background: var(--surface-2); padding: 12px; border-radius: 8px; overflow-x: auto; margin: 8px 0 0; }
+    .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: .85rem; margin-top: 8px; }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .chart-box { position: relative; height: 320px; }
+
+    /* overview summary */
+    .take { border-radius: 10px; padding: 12px 14px; background: var(--surface-2); border-top: 4px solid var(--tc); }
+    .take.value { --tc: var(--up); } .take.watch { --tc: var(--down); } .take.grow { --tc: var(--accent); }
+    .take .big { font-size: 1.9rem; font-weight: 700; color: var(--tc); line-height: 1.2; }
+    .howto ol { margin: 4px 0 10px; padding-left: 20px; }
+    .howto li { padding: 2px 0; }
+    .text-link { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+
+    /* why / faq */
+    .algo-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+    .algo { display: flex; flex-direction: column; gap: 8px; }
+    .algo.best { border: 2px solid var(--up); }
+    .algo .tag { align-self: flex-start; font-size: .78rem; font-weight: 700; padding: 2px 10px; border-radius: 99px; background: var(--up); color: #fff; }
+    .algo .tag.no { background: var(--surface-2); color: var(--muted); }
+    .score { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; font-size: .88rem; }
+    .score .v { font-weight: 700; text-align: right; }
+    .score .good { color: var(--up); } .score .bad { color: var(--down); }
+    .pc { font-size: .88rem; } .pc b { font-weight: 600; }
+    .section-title { margin: 26px 0 10px; }
+    .list { margin: 0; padding-left: 20px; } .list li { padding: 3px 0; }
+    .faq details { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; background: var(--surface); margin: 0 0 8px; }
+    .faq summary { color: var(--text); }
+    .faq details p { margin: 8px 0 0; }
+    .gloss { display: grid; grid-template-columns: minmax(120px, 200px) 1fr; gap: 0; }
+    .gloss dt, .gloss dd { margin: 0; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+    .gloss dt { font-weight: 600; }
+    @media (max-width: 560px) { .gloss { grid-template-columns: 1fr; } .gloss dt { border-bottom: 0; padding-bottom: 0; } }
+
+    /* ---------- responsive / mobile ---------- */
+    html { -webkit-text-size-adjust: 100%; }
+    body { overflow-wrap: break-word; }
+    /* grid children may shrink below their content (stops wide tables/code from widening the page) */
+    .grid > *, .seg-grid > *, .algo-grid > *, .fields > * { min-width: 0; }
+    .seg-grid { grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); }
+    .fields { grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 1fr)); }
+    .algo-grid { grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); }
+    .field input { font-size: 16px; } /* >= 16px stops iOS from zooming in on focus */
+    /* tab bar stays reachable while scrolling; fades at the edge when more tabs are off-screen */
+    .tabs { position: sticky; top: 0; z-index: 10; background: var(--bg); }
+    .tabs.more-right { -webkit-mask-image: linear-gradient(to right, #000 80%, transparent); mask-image: linear-gradient(to right, #000 80%, transparent); }
+    .tabs.more-left { -webkit-mask-image: linear-gradient(to left, #000 80%, transparent); mask-image: linear-gradient(to left, #000 80%, transparent); }
+    .tabs.more-left.more-right { -webkit-mask-image: linear-gradient(to right, transparent, #000 15%, #000 85%, transparent); mask-image: linear-gradient(to right, transparent, #000 15%, #000 85%, transparent); }
+    .step, .panel { scroll-margin-top: 64px; }
+    td.name, th.name { min-width: 150px; }
+
+    @media (max-width: 640px) {
+      main { padding: 16px 16px 48px; }
+      h1 { font-size: 1.35rem; }
+      h2 { font-size: 1.1rem; }
+      .lead { font-size: 1rem; }
+      .card { padding: 14px; border-radius: 10px; }
+      .grid, .seg-grid, .algo-grid { gap: 12px; }
+      .langs button { padding: 8px 12px; }
+      .tabs { margin: 14px -16px; padding: 0 8px; }
+      .tab { padding: 12px 10px; }
+      /* KPI tiles side by side, compact */
+      .grid.kpis { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+      .kpis .card { padding: 10px; }
+      .kpi .label, .kpi .sub { font-size: .75rem; line-height: 1.35; }
+      .kpi .value { font-size: 1.3rem; }
+      /* takeaways: number on the left, text on the right */
+      .take { display: grid; grid-template-columns: auto 1fr; column-gap: 12px; align-items: center; }
+      .take .big { grid-row: span 2; font-size: 1.6rem; }
+      .chart-box { height: 260px; }
+      .step { padding-left: 42px; }
+      .step::before { width: 30px; height: 30px; font-size: .9rem; }
+      .step::after { left: 14px; top: 34px; }
+      .flow a { font-size: .82rem; }
+      .chip, .link-btn { min-height: 40px; }
+      .primary { width: 100%; }
+      table { font-size: .84rem; }
+      th, td { padding: 6px 7px; }
+      pre { font-size: .76rem; }
+      .note { font-size: .88rem; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header class="topbar">
+    <div>
+      <h1>{{ t("กลุ่มลูกค้าบัตรเครดิต", "Credit Card Customer Segments") }}</h1>
+      <p class="lead">
+        <span lang="th">ลูกค้า <strong>{{ "{:,}".format(total) }}</strong> คน แบ่งได้ <strong>{{ k }} กลุ่ม</strong>
+          ตามพฤติกรรมการใช้บัตรในช่วง 6 เดือน เพื่อวางกลยุทธ์การตลาดให้ตรงกลุ่ม</span>
+        <span lang="en"><strong>{{ "{:,}".format(total) }}</strong> customers grouped into <strong>{{ k }} segments</strong>
+          by how they used their card over 6 months, so marketing can target each group.</span>
+      </p>
+    </div>
+    <div class="langs" role="group" aria-label="Language / ภาษา">
+      <button type="button" data-set-lang="th" aria-pressed="true">TH</button>
+      <button type="button" data-set-lang="en" aria-pressed="false">EN</button>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Menu">
+    <button class="tab" role="tab" id="tab-overview" aria-controls="overview" aria-selected="true">{{ t("ภาพรวม", "Overview") }}</button>
+    <button class="tab" role="tab" id="tab-segments" aria-controls="segments" aria-selected="false">{{ t("กลุ่มลูกค้า", "Segments") }}</button>
+    <button class="tab" role="tab" id="tab-predict" aria-controls="predict" aria-selected="false">{{ t("ลองทำนายลูกค้า", "Try a customer") }}</button>
+    <button class="tab" role="tab" id="tab-steps" aria-controls="steps" aria-selected="false">{{ t("อธิบายทีละขั้นตอน", "Step by step") }}</button>
+    <button class="tab" role="tab" id="tab-why" aria-controls="why" aria-selected="false">{{ t("ทำไมเลือกวิธีนี้", "Why this method") }}</button>
+    <button class="tab" role="tab" id="tab-faq" aria-controls="faq" aria-selected="false">{{ t("ถาม-ตอบ & คำศัพท์", "FAQ & glossary") }}</button>
+    <button class="tab" role="tab" id="tab-tech" aria-controls="tech" aria-selected="false">{{ t("รายละเอียดเทคนิค", "Technical details") }}</button>
+  </nav>
+
+  <!-- ===================== OVERVIEW ===================== -->
+  <section class="panel" id="overview" role="tabpanel" aria-labelledby="tab-overview">
+    {% set biggest = segments[order[0]] %}
+    {% set g = namespace(value=0, watch=0, grow=0, value_n=[], watch_n=[], grow_n=[], value_e=[], watch_e=[], grow_e=[]) %}
+    {% for cid in order %}{% set s = segments[cid] %}
+      {% if s.group == 'value' %}{% set g.value = g.value + s.share %}{% set g.value_n = g.value_n + [s.name_th] %}{% set g.value_e = g.value_e + [s.name] %}
+      {% elif s.group == 'watch' %}{% set g.watch = g.watch + s.share %}{% set g.watch_n = g.watch_n + [s.name_th] %}{% set g.watch_e = g.watch_e + [s.name] %}
+      {% else %}{% set g.grow = g.grow + s.share %}{% set g.grow_n = g.grow_n + [s.name_th] %}{% set g.grow_e = g.grow_e + [s.name] %}{% endif %}
+    {% endfor %}
+    <div class="card" style="margin-bottom:16px">
+      <h2>{{ t("สรุปสำคัญใน 3 บรรทัด", "Key takeaways in 3 lines") }}</h2>
+      <div class="grid g3 takeaways">
+        <div class="take value">
+          <div class="big">{{ '%.0f'|format(g.value*100) }}%</div>
+          <div><strong>{{ t("ลูกค้ามูลค่าสูง — รักษาไว้", "High-value customers — keep them") }}</strong></div>
+          <div class="small muted">{{ t(g.value_n|join(", "), g.value_e|join(", ")) }}</div>
+        </div>
+        <div class="take watch">
+          <div class="big">{{ '%.0f'|format(g.watch*100) }}%</div>
+          <div><strong>{{ t("ต้องเฝ้าระวังความเสี่ยงเครดิต", "Watch the credit risk") }}</strong></div>
+          <div class="small muted">{{ t(g.watch_n|join(", "), g.watch_e|join(", ")) }}</div>
+        </div>
+        <div class="take grow">
+          <div class="big">{{ '%.0f'|format(g.grow*100) }}%</div>
+          <div><strong>{{ t("ใช้งานน้อย/ปานกลาง — ควรกระตุ้น", "Low or moderate use — worth activating") }}</strong></div>
+          <div class="small muted">{{ t(g.grow_n|join(", "), g.grow_e|join(", ")) }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card howto" style="margin-bottom:16px">
+      <h2>{{ t("อ่านหน้านี้อย่างไร", "How to read this page") }}</h2>
+      <ol>
+        <li><button class="text-link" data-goto="segments">{{ t("กลุ่มลูกค้า", "Segments") }}</button> — {{ t("แต่ละกลุ่มเป็นใคร และควรทำอะไรกับพวกเขา", "who each group is and what to do with them") }}</li>
+        <li><button class="text-link" data-goto="predict">{{ t("ลองทำนายลูกค้า", "Try a customer") }}</button> — {{ t("ใส่ข้อมูลลูกค้า 1 คน แล้วดูว่าอยู่กลุ่มไหน เพราะอะไร", "enter one customer and see which group, and why") }}</li>
+        <li><button class="text-link" data-goto="steps">{{ t("อธิบายทีละขั้นตอน", "Step by step") }}</button> / <button class="text-link" data-goto="why">{{ t("ทำไมเลือกวิธีนี้", "Why this method") }}</button> — {{ t("วิธีที่ใช้ และทำไมเชื่อถือได้", "how it was done and why it can be trusted") }}</li>
+      </ol>
+      <p class="small muted">{{ t('คำว่า "กลุ่ม" ในที่นี้คือ กลุ่มลูกค้าที่ใช้บัตรคล้ายกัน ระบบหาเองจากข้อมูล ไม่มีใครกำหนดไว้ล่วงหน้า',
+                                 'A "segment" here is a set of customers who use their card in a similar way. The system found them from the data; nobody defined them in advance.') }}</p>
+    </div>
+
+    <div class="grid g3 kpis">
+      <div class="card kpi">
+        <div class="label">{{ t("ลูกค้าทั้งหมด", "Customers") }}</div>
+        <div class="value">{{ "{:,}".format(total) }}</div>
+        <div class="sub">{{ t("ผู้ถือบัตรที่ใช้งานอยู่", "Active card holders") }}</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">{{ t("จำนวนกลุ่ม", "Segments") }}</div>
+        <div class="value">{{ k }}</div>
+        <div class="sub">{{ t("แบ่งตามพฤติกรรม ไม่ใช่ข้อมูลส่วนตัว", "Based on behaviour, not personal data") }}</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">{{ t("กลุ่มใหญ่ที่สุด", "Largest segment") }}</div>
+        <div class="value" style="color: {{ palette[order[0]|int] }}">{{ '%.0f'|format(biggest.share*100) }}%</div>
+        <div class="sub">{{ t(biggest.name_th, biggest.name) }}</div>
+      </div>
+    </div>
+
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card">
+        <h2>{{ t("แต่ละกลุ่มมีลูกค้ากี่คน", "How many customers in each segment") }}</h2>
+        <p class="muted small">{{ t("เรียงจากกลุ่มใหญ่ไปเล็ก", "Largest first") }}</p>
+        <div class="chart-box"><canvas id="sizeChart" role="img" data-aria="chartSizes"></canvas></div>
+      </div>
+      <div class="card">
+        <h2>{{ t("แผนที่ลูกค้า", "Customer map") }}</h2>
+        <p class="muted small">
+          <span lang="th">1 จุด = ลูกค้า 1 คน (สุ่มมาแสดง {{ "{:,}".format(map_points|length) }} คน) จุดที่อยู่ใกล้กันมีพฤติกรรมคล้ายกัน</span>
+          <span lang="en">Each dot is one customer (random sample of {{ "{:,}".format(map_points|length) }}). Dots close together behave alike.</span>
+        </p>
+        <div class="chart-box"><canvas id="mapChart" role="img" data-aria="chartMap"></canvas></div>
+        <div class="legend" id="mapLegend"></div>
+      </div>
+    </div>
+
+    <p class="note" style="margin-top:16px">
+      <span lang="th"><strong>ข้อควรรู้:</strong> กลุ่มลูกค้าไม่ได้แยกขาดจากกันชัดเจน (เห็นได้จากแผนที่ที่สีต่าง ๆ ซ้อนกันตรงรอยต่อ)
+        ลูกค้าบางคนจึงอยู่ก้ำกึ่งระหว่างสองกลุ่ม ระบบจึงแสดง "ความมั่นใจ" ทุกครั้งที่ทำนาย</span>
+      <span lang="en"><strong>Good to know:</strong> the segments are not sharply separated (colours overlap at the borders on the map),
+        so some customers sit between two segments. That is why every prediction shows a confidence level.</span>
+    </p>
+  </section>
+
+  <!-- ===================== SEGMENTS ===================== -->
+  <section class="panel" id="segments" role="tabpanel" aria-labelledby="tab-segments" hidden>
+    <h2>{{ t("รู้จักลูกค้าแต่ละกลุ่ม", "Meet each segment") }}</h2>
+    <p class="muted">
+      <span lang="th">ลักษณะเด่น <span style="color:var(--up)">▲</span> = สูงกว่าลูกค้าโดยเฉลี่ย, <span style="color:var(--down)">▼</span> = ต่ำกว่าค่าเฉลี่ย</span>
+      <span lang="en">Traits: <span style="color:var(--up)">▲</span> = above the average customer, <span style="color:var(--down)">▼</span> = below average</span>
+    </p>
+    <div class="seg-grid">
+      {% for cid in order %}{% set s = segments[cid] %}
+      <article class="card seg" style="--c: {{ palette[cid|int] }}">
+        <div class="seg-head">
+          <div>
+            <h3>{{ t(s.name_th, s.name) }}</h3>
+            <div class="en-sub" lang="th">{{ s.name }}</div>
+          </div>
+          <div class="pct">{{ '%.0f'|format(s.share*100) }}%</div>
+        </div>
+        <div class="bar" aria-hidden="true"><span style="width: {{ '%.1f'|format(s.share*100) }}%"></span></div>
+        <div class="muted small">{{ "{:,}".format(s.size) }} {{ t("คน", "customers") }}</div>
+        <p>{{ t(s.description_th, s.description_en) }}</p>
+        <div class="badges">
+          {% for tr in s.traits %}<span class="badge {{ tr.dir }}">{{ '▲' if tr.dir == 'up' else '▼' }} {{ t(tr.text, tr.text_en) }}</span>{% endfor %}
+        </div>
+        <div class="todo"><b>{{ t("ควรทำอะไรกับกลุ่มนี้", "What to do") }}</b>{{ t(s.strategy_th, s.strategy) }}</div>
+        <button class="link-btn" data-example="{{ cid }}">{{ t("ดูลูกค้าตัวอย่างของกลุ่มนี้ →", "See a typical customer →") }}</button>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+
+  <!-- ===================== PREDICT ===================== -->
+  <section class="panel" id="predict" role="tabpanel" aria-labelledby="tab-predict" hidden>
+    <div class="card">
+      <h2>{{ t("ลูกค้ารายนี้อยู่กลุ่มไหน?", "Which segment is this customer in?") }}</h2>
+      <p class="muted">{{ t('เลือกลูกค้าตัวอย่างจริงจากแต่ละกลุ่ม หรือกรอกข้อมูลเองด้านล่าง แล้วกด "ดูผล"',
+                            'Pick a real example customer from a segment, or fill in the form below and press "Show result".') }}</p>
+      <div class="chips">
+        {% for cid in order %}
+        <button type="button" class="chip" data-example="{{ cid }}" style="--c: {{ palette[cid|int] }}"><span class="dot"></span>{{ t(segments[cid].name_th, segments[cid].name) }}</button>
+        {% endfor %}
+      </div>
+
+      <form id="predictForm" novalidate>
+        <div class="fields">
+          {% for f in essential %}
+          <div class="field">
+            <label for="{{ f }}">{{ t(field_info[f].th[0], field_info[f].en[0]) }}</label>
+            <span class="hint">{{ t(field_info[f].th[1], field_info[f].en[1]) }}</span>
+            <input type="number" step="any" min="0" {% if 'FREQUENCY' in f or f == 'PRC_FULL_PAYMENT' %}max="1"{% endif %}
+                   id="{{ f }}" name="{{ f }}" value="{{ defaults[f] }}" inputmode="decimal">
+          </div>
+          {% endfor %}
+        </div>
+        <details>
+          <summary>{{ t("ข้อมูลเพิ่มเติม (ไม่บังคับ — ถ้าเว้นว่าง ระบบจะประมาณให้)", "More details (optional — left blank, they are estimated)") }}</summary>
+          <div class="fields">
+            {% for f in features if f not in essential %}
+            <div class="field">
+              <label for="{{ f }}">{{ t(field_info[f].th[0], field_info[f].en[0]) }}</label>
+              <span class="hint">{{ t(field_info[f].th[1], field_info[f].en[1]) }}</span>
+              <input type="number" step="any" min="0" {% if 'FREQUENCY' in f or f == 'PRC_FULL_PAYMENT' %}max="1"{% endif %}
+                     id="{{ f }}" name="{{ f }}" data-ph="auto" inputmode="decimal">
+            </div>
+            {% endfor %}
+          </div>
+        </details>
+        <button type="submit" class="primary" id="submitBtn" data-i18n="submit"></button>
+        <div class="error" id="formError" role="alert"></div>
+      </form>
+    </div>
+
+    <div class="card result" id="result" aria-live="polite">
+      <div class="muted small">{{ t("ลูกค้ารายนี้อยู่ใน", "This customer belongs to") }}</div>
+      <div class="seg-name" id="rName"></div>
+      <p id="rDesc"></p>
+      <div class="small"><strong>{{ t("ความมั่นใจ:", "Confidence:") }}</strong> <span id="rConfText"></span></div>
+      <div class="meter"><span id="rMeter"></span></div>
+      <div class="muted small" id="rRunner"></div>
+      <div style="margin-top:12px"><strong>{{ t("เพราะอะไร", "Why") }}</strong>
+        <ul class="reasons" id="rReasons"></ul>
+      </div>
+      <div class="todo" style="margin-top:12px"><b>{{ t("ควรทำอะไร", "What to do") }}</b><span id="rStrategy"></span></div>
+    </div>
+  </section>
+
+  <!-- ===================== STEP BY STEP ===================== -->
+  <section class="panel" id="steps" role="tabpanel" aria-labelledby="tab-steps" hidden>
+    <h2>{{ t("เราแบ่งกลุ่มลูกค้าอย่างไร — ทีละขั้นตอน", "How we built the segments — step by step") }}</h2>
+    <p class="muted">{{ t("ภาพรวมกระบวนการ (กดเพื่อข้ามไปยังขั้นนั้น)", "The whole process (click a step to jump to it)") }}</p>
+    <div class="flow">
+      <a href="#step-1">{{ t("ข้อมูลดิบ", "Raw data") }}</a><span class="arrow">→</span>
+      <a href="#step-2">{{ t("เติมข้อมูลที่หาย", "Fill gaps") }}</a><span class="arrow">→</span>
+      <a href="#step-3">{{ t("ปรับสเกล", "Rescale") }}</a><span class="arrow">→</span>
+      <a href="#step-4">{{ t("สร้างตัวชี้วัด", "New indicators") }}</a><span class="arrow">→</span>
+      <a href="#step-5">{{ t("ย่อข้อมูล", "Compress") }}</a><span class="arrow">→</span>
+      <a href="#step-6">{{ t("เลือกจำนวนกลุ่ม", "Choose k") }}</a><span class="arrow">→</span>
+      <a href="#step-7">{{ t("จัดกลุ่ม", "Cluster") }}</a><span class="arrow">→</span>
+      <a href="#step-8">{{ t("ตั้งชื่อกลุ่ม", "Name") }}</a><span class="arrow">→</span>
+      <a href="#step-9">{{ t("ตรวจคุณภาพ", "Check quality") }}</a><span class="arrow">→</span>
+      <a href="#step-10">{{ t("นำไปใช้", "Use it") }}</a>
+    </div>
+
+    <ol class="steps">
+      <li class="step" id="step-1"><div class="card">
+        <h3>{{ t("รวบรวมข้อมูลพฤติกรรมลูกค้า", "Collect customer behaviour data") }}</h3>
+        <p>{{ t("ใช้ข้อมูลการใช้บัตรย้อนหลัง 6 เดือนของลูกค้าแต่ละคน เช่น ยอดคงค้าง ยอดซื้อ การกดเงินสด การชำระคืน และวงเงิน",
+                "Six months of card usage per customer: balance, purchases, cash advances, payments and credit limit.") }}</p>
+        <span class="fact">{{ "{:,}".format(data.rows) }} {{ t("ลูกค้า", "customers") }}</span>
+        <span class="fact">{{ data.columns }} {{ t("ตัวแปรพฤติกรรม", "behaviour variables") }}</span>
+        <p class="why">{{ t('ไม่ใช้ข้อมูลส่วนตัว (อายุ เพศ รายได้) — กลุ่มที่ได้จึงสะท้อน "วิธีใช้บัตร" ล้วน ๆ',
+                            "No personal data (age, gender, income) is used, so the segments reflect only how the card is used.") }}</p>
+      </div></li>
+
+      <li class="step" id="step-2"><div class="card">
+        <h3>{{ t("จัดการข้อมูลที่หายไป", "Handle missing values") }}</h3>
+        <p>{{ t('ลูกค้าบางรายไม่มีข้อมูลบางช่อง เราเติมด้วย "ค่ากลาง" (median) ของลูกค้าทั้งหมด และจดไว้ว่าเคยหาย เพราะการไม่มีข้อมูลการชำระขั้นต่ำเองก็บอกพฤติกรรมได้',
+                "Some customers have blank fields. We fill them with the median of all customers and keep a flag that the value was missing - a missing minimum payment is itself informative.") }}</p>
+        {% for col, n in data.missing.items() %}<span class="fact">{{ t(field_info[col].th[0] ~ " หาย " ~ n ~ " ราย", field_info[col].en[0] ~ ": " ~ n ~ " missing") }}</span>{% endfor %}
+        <p class="why">{{ t("เราลองเติมแบบ KNN (ดูจากลูกค้าที่คล้ายกัน) ด้วย ผลแทบไม่ต่าง จึงเลือกวิธีที่ง่ายกว่า",
+                            "We also tried KNN imputation (copying from similar customers); results were almost identical, so we kept the simpler method.") }}</p>
+      </div></li>
+
+      <li class="step" id="step-3"><div class="card">
+        <h3>{{ t("ปรับสเกลข้อมูลที่เบ้มาก", "Rescale very skewed values") }}</h3>
+        <p>{{ t('ลูกค้าส่วนใหญ่ใช้จ่ายน้อย แต่มีบางคนใช้จ่ายสูงมาก ถ้าไม่ปรับ คนกลุ่มน้อยนี้จะ "ดึง" ผลการจัดกลุ่มทั้งหมด เราจึงแปลงยอดเงินด้วย log (ย่อช่วงตัวเลขใหญ่ให้แคบลง) แล้วปรับทุกตัวแปรให้อยู่สเกลเดียวกัน',
+                "Most customers spend little but a few spend a lot; left as is, those few would drive the whole result. We apply a log transform to money amounts (shrinking large numbers) and then put every variable on the same scale.") }}</p>
+        <p class="why">{{ t("ตัวอย่าง: ยอดซื้อ 100 กับ 10,000 ต่างกัน 100 เท่า หลังแปลง log จะต่างกันประมาณ 2 เท่า ทำให้เทียบกันได้อย่างยุติธรรม",
+                            "Example: purchases of 100 and 10,000 differ 100x; after the log transform they differ about 2x, so they compare fairly.") }}</p>
+      </div></li>
+
+      <li class="step" id="step-4"><div class="card">
+        <h3>{{ t("สร้างตัวชี้วัดใหม่ที่มีความหมายทางธุรกิจ", "Add business indicators") }}</h3>
+        <p>{{ t("นอกจากข้อมูลดิบ เราคำนวณตัวชี้วัดเพิ่ม: อัตราการชำระคืนเทียบยอดค้าง, สัดส่วนการใช้วงเงิน, ยอดซื้อเฉลี่ยต่อครั้ง และยอดกดเงินสดเฉลี่ยต่อครั้ง",
+                "On top of the raw data we compute: payments vs balance, credit utilisation, average purchase size and average cash-advance size.") }}</p>
+        <span class="fact">{{ t("รวม " ~ data.model_features ~ " ตัวแปร", data.model_features ~ " variables in total") }}</span>
+      </div></li>
+
+      <li class="step" id="step-5"><div class="card">
+        <h3>{{ t("ย่อข้อมูลให้กระชับ (PCA)", "Compress the data (PCA)") }}</h3>
+        <p>{{ t("หลายตัวแปรซ้ำซ้อนกัน เช่น ยอดซื้อกับจำนวนครั้งที่ซื้อ เราใช้ PCA รวมสิ่งที่ซ้ำกันเป็นมิติใหม่ที่น้อยลง โดยยังเก็บข้อมูลไว้ 90% ช่วยตัดสัญญาณรบกวน",
+                "Many variables overlap (e.g. purchase amount and number of purchases). PCA merges them into fewer dimensions while keeping 90% of the information, which also removes noise.") }}</p>
+        <span class="fact">{{ data.model_features }} → {{ data.pca_dimensions }} {{ t("มิติ", "dimensions") }}</span>
+        <p class="why">{{ t("แผนที่ลูกค้าในแท็บภาพรวมใช้ 2 มิติแรก ซึ่งแสดงความแตกต่างได้ " ~ ('%.0f'|format(map_variance*100)) ~ "% จึงดูซ้อนกันมากกว่าความจริงเล็กน้อย",
+                            "The customer map on the Overview tab uses the first 2 dimensions, which show " ~ ('%.0f'|format(map_variance*100)) ~ "% of the differences, so segments look a bit more overlapped than they really are.") }}</p>
+      </div></li>
+
+      <li class="step" id="step-6"><div class="card">
+        <h3>{{ t("เลือกจำนวนกลุ่มที่เหมาะสม", "Choose the number of segments") }}</h3>
+        <p lang="th">ลองแบ่ง 3 ถึง 8 กลุ่ม แล้วให้คะแนน 3 ด้าน: <b>แยกกันชัดแค่ไหน</b>, <b>แต่ละกลุ่มกระชับแค่ไหน</b>, และ
+          <b>ผลคงเดิมไหมเมื่อสุ่มข้อมูลใหม่</b> จากนั้นเลือกจำนวนที่ได้อันดับรวมดีที่สุด และตัดตัวเลือกที่มีกลุ่มเล็กเกินไปทิ้ง</p>
+        <p lang="en">We try 3 to 8 segments and score each on three things: <b>how well separated</b>, <b>how compact</b>, and
+          <b>whether the result stays the same on resampled data</b>. The best overall rank wins; options with a tiny segment are excluded.</p>
+        {% if k_table %}
+        <div class="scroll"><table>
+          <thead><tr>
+            <th>{{ t("จำนวนกลุ่ม", "Segments") }}</th>
+            <th>{{ t("แยกกันชัด (silhouette, ยิ่งสูงยิ่งดี)", "Separation (silhouette, higher = better)") }}</th>
+            <th>{{ t("ความกระชับ (DB, ยิ่งต่ำยิ่งดี)", "Compactness (DB, lower = better)") }}</th>
+            <th>{{ t("ความคงที่ (ยิ่งใกล้ 1 ยิ่งดี)", "Stability (closer to 1 = better)") }}</th>
+            <th>{{ t("อันดับรวม", "Overall rank") }}</th>
+          </tr></thead>
+          <tbody>
+            {% for r in k_table %}
+            <tr class="{{ 'chosen' if r.k == k }}"><td>{{ r.k }}{% if r.k == k %} ✓ {{ t("เลือก", "chosen") }}{% endif %}</td><td>{{ '%.3f'|format(r.silhouette) }}</td><td>{{ '%.2f'|format(r.davies_bouldin) }}</td><td>{{ '%.2f'|format(r.stability) }}</td><td>{{ '%.0f'|format(r.rank_score) }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table></div>
+        <p class="why">{{ t("ถ้าคะแนนรวมเสมอกัน ใช้ตัวที่แยกกันชัดกว่าเป็นตัวตัดสิน", "Ties are broken by the better separation score.") }}</p>
+        {% endif %}
+      </div></li>
+
+      <li class="step" id="step-7"><div class="card">
+        <h3>{{ t("จัดกลุ่มด้วย K-Means", "Group customers with K-Means") }}</h3>
+        <p>{{ t('วาง "จุดศูนย์กลาง" ' ~ k ~ ' จุด ให้ลูกค้าแต่ละคนไปอยู่กับจุดศูนย์กลางที่ใกล้ที่สุด แล้วเลื่อนจุดศูนย์กลางไปไว้ตรงกลางสมาชิก ทำซ้ำจนนิ่ง',
+                "Place " ~ k ~ " centre points, assign every customer to the nearest centre, move each centre to the middle of its members, and repeat until nothing changes.") }}</p>
+        <p class="why">{{ t("เราเทียบกับวิธีอื่นด้วย (Hierarchical, Gaussian Mixture, DBSCAN, Spectral) K-Means ให้ผลคงที่ที่สุด และจัดลูกค้าใหม่เข้ากลุ่มได้ทันที ส่วน Hierarchical ใช้ช่วยดูว่ากลุ่มไหนใกล้กัน",
+                            "We compared it with Hierarchical, Gaussian Mixture, DBSCAN and Spectral clustering. K-Means was the most stable and can place new customers instantly; hierarchical clustering is used to see which segments are close to each other.") }}</p>
+      </div></li>
+
+      <li class="step" id="step-8"><div class="card">
+        <h3>{{ t("อ่านความหมายและตั้งชื่อกลุ่ม", "Interpret and name the segments") }}</h3>
+        <p>{{ t("เทียบค่าเฉลี่ยของแต่ละกลุ่มกับลูกค้าทั้งหมด เพื่อหาว่ากลุ่มนั้นโดดเด่นตรงไหน (เช่น กดเงินสดสูง จ่ายเต็มบ่อย) แล้วตั้งชื่อและวางกลยุทธ์ให้สอดคล้อง",
+                "Each segment's averages are compared with all customers to find what stands out (e.g. heavy cash advance, often pays in full); the name and strategy follow from that.") }}</p>
+        <p class="why">{{ t('ชื่อกลุ่มตั้งด้วยกฎอัตโนมัติจากลักษณะเด่น ควรให้ทีมธุรกิจตรวจทานอีกครั้ง — ดูผลได้ที่แท็บ "กลุ่มลูกค้า"',
+                            'Names come from automatic rules on those traits and should be reviewed by the business team - see the "Segments" tab.') }}</p>
+      </div></li>
+
+      <li class="step" id="step-9"><div class="card">
+        <h3>{{ t("ตรวจคุณภาพผลลัพธ์", "Check the quality") }}</h3>
+        <span class="fact">{{ t("ความคงที่", "Stability") }} {{ '%.2f'|format(metrics.stability_ari) }} / 1</span>
+        <span class="fact">{{ t("แนวโน้มเป็นกลุ่ม", "Clustering tendency") }} {{ '%.2f'|format(metrics.hopkins) }} ({{ t("ข้อมูลสุ่ม", "random data") }} {{ '%.2f'|format(metrics.hopkins_null) }})</span>
+        <p style="margin-top:6px">{{ t("สุ่มข้อมูลใหม่หลายรอบแล้วจัดกลุ่มซ้ำ ได้กลุ่มเดิมเกือบทั้งหมด และข้อมูลมีโครงสร้างเป็นกลุ่มจริงมากกว่าข้อมูลสุ่ม แต่กลุ่มไม่ได้แยกขาดจากกัน ลูกค้าบางคนจึงก้ำกึ่ง",
+                                     "Re-running on resampled data gives almost the same segments, and the data is clearly more clustered than random data - but the segments are not sharply separated, so some customers are borderline.") }}</p>
+      </div></li>
+
+      <li class="step" id="step-10"><div class="card">
+        <h3>{{ t("นำไปใช้กับลูกค้ารายใหม่", "Use it for new customers") }}</h3>
+        <p>{{ t("ข้อมูลลูกค้าใหม่ผ่านขั้นที่ 2-5 แบบเดียวกันทุกประการ จากนั้นหาจุดศูนย์กลางที่ใกล้ที่สุด ระบบตอบกลับเป็น กลุ่ม + ความมั่นใจ + เหตุผล + สิ่งที่ควรทำ",
+                "A new customer goes through exactly the same steps 2-5, then gets the nearest centre. The answer is: segment + confidence + reasons + what to do.") }}</p>
+        <button class="link-btn" data-goto="predict">{{ t("ลองทำนายลูกค้า →", "Try a customer →") }}</button>
+      </div></li>
+    </ol>
+  </section>
+
+  <!-- ===================== WHY THIS METHOD ===================== -->
+  <section class="panel" id="why" role="tabpanel" aria-labelledby="tab-why" hidden>
+    <h2>{{ t("ทำไมเลือก K-Means?", "Why K-Means?") }}</h2>
+    <p>{{ t("เราทดลอง 4 วิธีกับข้อมูลชุดเดียวกัน ด้วยจำนวนกลุ่มเท่ากัน (" ~ k ~ " กลุ่ม) แล้ววัด 3 เรื่องที่สำคัญต่อการใช้งานจริง:",
+            "We ran 4 methods on the same data with the same number of groups (" ~ k ~ ") and measured three things that matter in practice:") }}</p>
+    <div class="grid g3" style="margin-bottom:16px">
+      <div class="card"><h3>1. {{ t("แยกกันชัดแค่ไหน", "How clearly separated") }}</h3>
+        <p class="small muted">{{ t("คนในกลุ่มเดียวกันควรคล้ายกัน และต่างจากกลุ่มอื่น ถ้าไม่ชัด ข้อเสนอที่ออกแบบให้กลุ่มหนึ่งจะไปโดนคนที่ไม่ใช่",
+                                    "People in a group should be alike and different from other groups. If not, an offer designed for one group reaches the wrong people.") }}</p></div>
+      <div class="card"><h3>2. {{ t("ผลคงที่ไหม", "How stable") }}</h3>
+        <p class="small muted">{{ t("ถ้าเก็บข้อมูลใหม่แล้วกลุ่มเปลี่ยนไปมาก แคมเปญเดือนนี้กับเดือนหน้าจะยิงคนละกลุ่ม ค่าใกล้ 1 = เชื่อถือได้",
+                                    "If new data reshuffles the groups, this month's campaign and next month's target different people. Close to 1 = dependable.") }}</p></div>
+      <div class="card"><h3>3. {{ t("จัดลูกค้าใหม่ได้ไหม", "Handles new customers") }}</h3>
+        <p class="small muted">{{ t("ลูกค้าเปิดบัตรใหม่ทุกวัน ระบบต้องบอกได้ทันทีว่าอยู่กลุ่มไหน โดยไม่ต้องคำนวณใหม่ทั้งหมด",
+                                    "New customers arrive every day; the system must place them immediately without redoing everything.") }}</p></div>
+    </div>
+
+    <div class="algo-grid">
+      {% for a in ['kmeans', 'hierarchical', 'gmm', 'dbscan'] if a in algos %}{% set r = algos[a] %}{% set info = algo_info[a] %}
+      <article class="card algo {{ 'best' if a == 'kmeans' }}">
+        <span class="tag {{ '' if a == 'kmeans' else 'no' }}">{{ t("✓ เลือกใช้", "✓ Chosen") if a == 'kmeans' else t("ไม่เลือก", "Not chosen") }}</span>
+        <h3>{{ info.name }}</h3>
+        <p class="small">{{ t(info.how_th, info.how_en) }}</p>
+        <div class="score">
+          <span>{{ t("จำนวนกลุ่มที่ได้", "Groups found") }}</span>
+          <span class="v {{ 'bad' if r.clusters != k }}">{{ r.clusters }}{% if r.noise_share > 0 %} + {{ '%.0f'|format(r.noise_share*100) }}% {{ t("ค่าผิดปกติ", "outliers") }}{% endif %}</span>
+          <span>{{ t("แยกกันชัด", "Separation") }} <span class="muted">(silhouette)</span></span>
+          <span class="v {{ 'good' if r.silhouette and r.silhouette >= algos.kmeans.silhouette }}">{{ r.silhouette if r.silhouette is not none else '-' }}{% if a == 'dbscan' %}*{% endif %}</span>
+          <span>{{ t("ความคงที่", "Stability") }}</span>
+          <span class="v {{ 'good' if r.stability >= 0.9 else 'bad' }}">{{ '%.2f'|format(r.stability) }}</span>
+          <span>{{ t("จัดลูกค้าใหม่ได้", "Places new customers") }}</span>
+          <span class="v {{ 'good' if r.can_predict else 'bad' }}">{{ t("ได้", "Yes") if r.can_predict else t("ไม่ได้", "No") }}</span>
+        </div>
+        <div class="pc"><b>{{ t("ข้อดี:", "Pros:") }}</b> {{ t(info.pros_th, info.pros_en) }}</div>
+        <div class="pc"><b>{{ t("ข้อเสีย:", "Cons:") }}</b> {{ t(info.cons_th, info.cons_en) }}</div>
+      </article>
+      {% endfor %}
+    </div>
+    {% if 'dbscan' in algos %}
+    <p class="small muted" style="margin-top:8px">{{ t("* คะแนนของ DBSCAN คิดเฉพาะลูกค้าที่ไม่ถูกตัดเป็นค่าผิดปกติ จึงดูดีกว่าความจริง และมีแค่ " ~ algos.dbscan.clusters ~ " กลุ่ม ใช้วางแผนการตลาดไม่ได้",
+                                                  "* DBSCAN's score ignores the customers it discards as outliers, so it looks better than it is - and it finds only " ~ algos.dbscan.clusters ~ " groups, which is not usable for marketing.") }}</p>
+    {% endif %}
+
+    {% if 'kmeans' in algos %}
+    <div class="card" style="margin-top:16px">
+      <h3>{{ t("สรุป: ทำไม K-Means ชนะ", "Bottom line: why K-Means wins") }}</h3>
+      <ul class="list">
+        <li>{{ t("แยกกลุ่มได้ชัดที่สุดในบรรดาวิธีที่ได้กลุ่มครบ (" ~ algos.kmeans.silhouette ~ ")", "Clearest separation among methods that produce usable groups (" ~ algos.kmeans.silhouette ~ ")") }}</li>
+        {% set others = [] %}{% for a, r in algos.items() if a != 'kmeans' %}{% set _ = others.append(r.stability) %}{% endfor %}
+        {% set lo = '%.2f'|format(others|min) %}{% set hi = '%.2f'|format(others|max) %}
+        <li>{{ t("คงที่ที่สุด (" ~ ('%.2f'|format(algos.kmeans.stability)) ~ ") — วิธีอื่นได้เพียง " ~ lo ~ " ถึง " ~ hi ~ " แปลว่ากลุ่มเปลี่ยนไปมากเมื่อข้อมูลเปลี่ยนเล็กน้อย",
+                 "Most stable (" ~ ('%.2f'|format(algos.kmeans.stability)) ~ ") - the others score only " ~ lo ~ " to " ~ hi ~ ", so their groups shift noticeably when the data changes a little") }}</li>
+        <li>{{ t("จัดลูกค้าใหม่ได้ทันที และอธิบายง่าย: แต่ละกลุ่มมี \"ลูกค้าต้นแบบ\" (จุดศูนย์กลาง) ที่ชี้ให้ดูได้",
+                 "Places new customers instantly and is easy to explain: each group has a \"typical customer\" (its centre) you can point to") }}</li>
+        <li>{{ t("Hierarchical ยังมีประโยชน์ — ใช้ดูว่ากลุ่มไหนใกล้กัน (ดูโน้ตบุ๊กหัวข้อ 8)", "Hierarchical clustering is still useful for seeing which groups are related (notebook section 8)") }}</li>
+      </ul>
+    </div>
+    {% endif %}
+
+    <h2 class="section-title">{{ t("ทำไมบางงานอ้างคะแนนสูงกว่านี้?", "Why do some analyses report higher scores?") }}</h2>
+    <div class="card">
+      <p>{{ t("งานบน Kaggle ที่ใช้ข้อมูลชุดนี้บางชิ้นรายงาน silhouette ประมาณ 0.41 ซึ่งดูสูงกว่าของเรา (" ~ metrics.silhouette ~ ") แต่เขาย่อข้อมูลเหลือ 2 มิติก่อน แล้ววัดคะแนนบนภาพ 2 มิตินั้นเอง — เหมือนตัดสินว่ากลุ่มแยกกันดีจากภาพเงา",
+              "Some Kaggle notebooks on this dataset report a silhouette around 0.41, higher than ours (" ~ metrics.silhouette ~ "). But they squash the data to 2 dimensions first and score the groups on that 2-D picture itself - like judging separation from a shadow.") }}</p>
+      <p>{{ t("เมื่อเราวัดทั้งสองแบบในพื้นที่เดียวกัน แต่ละแบบชนะเฉพาะในพื้นที่ของตัวเอง (ในพื้นที่ของเรา: 0.23 vs 0.08 / ในพื้นที่ของเขา: 0.05 vs 0.18) แปลว่าคะแนนข้ามวิธีเทียบกันตรง ๆ ไม่ได้ เราจึงตัดสินด้วยความคงที่ การจัดการลูกค้าที่ใช้จ่ายสุดโต่ง และความหมายทางธุรกิจ",
+              "When we scored both in the same space, each only wins in its own space (ours: 0.23 vs 0.08 / theirs: 0.05 vs 0.18). Scores from different set-ups simply are not comparable, so we decide on stability, handling of extreme spenders and business meaning.") }}</p>
+      <p class="small muted">{{ t("ที่มา: การทดลองในโน้ตบุ๊ก หัวข้อ 8.5", "Source: our experiment, notebook section 8.5") }}</p>
+    </div>
+
+    <h2 class="section-title">{{ t("ทำไมไม่ใช้ AI ที่ซับซ้อนกว่า (เช่น Deep Learning)?", "Why not a more complex AI (e.g. deep learning)?") }}</h2>
+    <div class="card">
+      <ul class="list">
+        <li>{{ t('ไม่มี "คำตอบที่ถูก" ให้โมเดลเรียนรู้ (ไม่มีใครติดป้ายกลุ่มไว้ก่อน) งานนี้จึงเป็นการค้นหาโครงสร้าง ไม่ใช่การทำนายคำตอบ',
+                 'There is no "right answer" to learn from (nobody labelled the groups beforehand) - this is about discovering structure, not predicting a known answer.') }}</li>
+        <li>{{ t("ข้อมูลมีราว 9,000 แถว 17 คอลัมน์ โมเดลง่ายก็เพียงพอ โมเดลใหญ่จะยิ่งยากต่อการอธิบาย", "About 9,000 rows and 17 columns: a simple model is enough, and a big one would be much harder to explain.") }}</li>
+        <li>{{ t("งานด้านการเงินต้องตรวจสอบและอธิบายได้ว่าทำไมลูกค้าอยู่กลุ่มนี้ — K-Means ให้เหตุผลได้ตรงไปตรงมา", "Finance needs to audit and explain why a customer is in a group - K-Means gives straightforward reasons.") }}</li>
+        <li>{{ t("เราลองวิธีที่ซับซ้อนขึ้นแล้ว (Gaussian Mixture, Spectral) ไม่ได้ดีขึ้น ข้อจำกัดอยู่ที่ข้อมูล ไม่ใช่อัลกอริทึม", "We tried more complex methods (Gaussian Mixture, Spectral) and they were not better. The limit is the data, not the algorithm.") }}</li>
+      </ul>
+    </div>
+
+    <h2 class="section-title">{{ t("ข้อจำกัดที่ควรรู้", "Limitations to keep in mind") }}</h2>
+    <div class="card">
+      <ul class="list">
+        <li>{{ t("กลุ่มเหลื่อมกันพอสมควร (silhouette " ~ metrics.silhouette ~ ") — ใช้ค่าความมั่นใจประกอบทุกครั้ง", "Groups overlap noticeably (silhouette " ~ metrics.silhouette ~ ") - always look at the confidence.") }}</li>
+        <li>{{ t("เป็นภาพนิ่งจากข้อมูล 6 เดือน ลูกค้าย้ายกลุ่มได้เมื่อพฤติกรรมเปลี่ยน ควรคำนวณใหม่เป็นระยะ", "It is a snapshot of 6 months; customers move between groups as behaviour changes, so refresh it regularly.") }}</li>
+        <li>{{ t('ไม่มีข้อมูลร้านค้า ช่องทาง หรือข้อมูลประชากร จึงรู้ว่าลูกค้า "ทำอะไร" แต่ไม่รู้ว่า "ทำไม"', 'No merchant, channel or demographic data, so we see what customers do, not why.') }}</li>
+        <li>{{ t("กลุ่มบอกลักษณะ ไม่ได้พิสูจน์เหตุและผล — กลยุทธ์ควรทดสอบจริง (A/B test) ก่อนขยายผล", "Segments describe; they do not prove cause and effect - test strategies (A/B tests) before rolling out.") }}</li>
+        <li>{{ t("ชื่อกลุ่มตั้งด้วยกฎอัตโนมัติ ควรให้ทีมธุรกิจตรวจทาน", "Group names come from automatic rules and should be reviewed by the business team.") }}</li>
+        <li>{{ t("ข้อมูลเป็นชุดตัวอย่างสาธารณะ (Kaggle) ไม่ระบุสกุลเงิน ตัวเลขจึงเป็น \"หน่วยเงิน\" ตามข้อมูล", "This is a public sample dataset (Kaggle) with no stated currency; amounts are in the data's own units.") }}</li>
+      </ul>
+    </div>
+
+    <h2 class="section-title">{{ t("ใช้อย่างรับผิดชอบ", "Use it responsibly") }}</h2>
+    <div class="card">
+      <ul class="list">
+        <li>{{ t("ใช้เลือกข้อเสนอและการสื่อสาร ไม่ใช้ตัดสินอนุมัติ/ปฏิเสธสินเชื่อ — งานนั้นต้องใช้โมเดลเครดิตที่ผ่านการตรวจสอบ", "Use it to choose offers and messages, not to approve or decline credit - that needs a validated credit-risk model.") }}</li>
+        <li>{{ t('กลุ่ม "เฝ้าระวัง" ไม่ได้แปลว่าลูกค้าไม่ดี ควรเสนอความช่วยเหลือ (เช่น ผ่อนดอกเบี้ยต่ำ) มากกว่าลงโทษ', 'A "watch" group does not mean bad customers - offer help (e.g. lower-rate plans) rather than penalties.') }}</li>
+        <li>{{ t("ปฏิบัติตามกฎหมายคุ้มครองข้อมูลส่วนบุคคล (PDPA) ใช้ข้อมูลเท่าที่จำเป็น", "Follow data-protection law (e.g. PDPA/GDPR) and use only the data you need.") }}</li>
+        <li>{{ t("วัดผลแคมเปญแยกตามกลุ่ม แล้วปรับกลยุทธ์ตามผลจริง", "Measure campaign results per segment and adjust the strategy based on what actually works.") }}</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ===================== FAQ & GLOSSARY ===================== -->
+  <section class="panel faq" id="faq" role="tabpanel" aria-labelledby="tab-faq" hidden>
+    <h2>{{ t("คำถามที่พบบ่อย", "Frequently asked questions") }}</h2>
+    <details><summary>{{ t("ทำไมได้ " ~ k ~ " กลุ่ม ไม่ใช่ 3 หรือ 10?", "Why " ~ k ~ " groups, not 3 or 10?") }}</summary>
+      <p>{{ t("เราลอง 3 ถึง 8 กลุ่ม แล้วเลือกจำนวนที่ได้คะแนนรวมดีที่สุดทั้งความชัด ความกระชับ และความคงที่ (ดูตารางในแท็บ \"อธิบายทีละขั้นตอน\" ขั้นที่ 6) ถ้าธุรกิจอยากได้น้อยกว่านี้เพื่อให้จัดการง่าย ก็สั่งคำนวณใหม่ด้วยจำนวนที่ต้องการได้",
+              "We tried 3 to 8 and picked the number with the best combined score for separation, compactness and stability (see step 6 in \"Step by step\"). If the business prefers fewer groups for simplicity, it can be re-run with any number.") }}</p></details>
+    <details><summary>{{ t("ทำไมลูกค้าของฉันได้ความมั่นใจต่ำ?", "Why is my customer's confidence low?") }}</summary>
+      <p>{{ t("ลูกค้าคนนั้นอยู่ตรงรอยต่อระหว่างสองกลุ่ม ลักษณะจึงคล้ายทั้งสองกลุ่ม (ลูกค้าราว 1 ใน 6 เป็นแบบนี้) ให้ดู \"กลุ่มที่ใกล้เคียงรองลงมา\" ประกอบ และเลือกข้อเสนอที่เหมาะกับทั้งสองกลุ่ม",
+              "The customer sits on the border between two groups and resembles both (about 1 in 6 customers do). Look at the \"next closest segment\" too and pick an offer that suits both.") }}</p></details>
+    <details><summary>{{ t("ความมั่นใจคำนวณอย่างไร?", "How is confidence calculated?") }}</summary>
+      <p>{{ t("เทียบระยะห่างจากลูกค้าไปยังจุดศูนย์กลางของกลุ่มที่ใกล้ที่สุด กับกลุ่มที่ใกล้รองลงมา ถ้าใกล้กลุ่มแรกมากกว่ากลุ่มที่สองมาก ความมั่นใจจะสูง ถ้าระยะพอ ๆ กัน ความมั่นใจจะใกล้ 0",
+              "We compare the customer's distance to the nearest group centre with the distance to the second nearest. Much closer to the first = high confidence; about equally close = confidence near 0.") }}</p></details>
+    <details><summary>{{ t('"อยู่ใน 5% แรกของลูกค้า" หมายความว่าอะไร?', 'What does "top 5% of customers" mean?') }}</summary>
+      <p>{{ t("ค่านั้นสูงกว่าลูกค้าอีก 95% ส่วน \"25% ล่างสุด\" คือต่ำกว่าลูกค้า 3 ใน 4", "The value is higher than 95% of customers. \"Bottom 25%\" means lower than 3 out of 4 customers.") }}</p></details>
+    <details><summary>{{ t("ลูกค้าย้ายกลุ่มได้ไหม?", "Can a customer move to another group?") }}</summary>
+      <p>{{ t("ได้ และควรติดตาม เช่น ลูกค้าที่เคย \"ใช้บ่อยและจ่ายเต็ม\" ย้ายไป \"หมุนเงินและค้างชำระ\" เป็นสัญญาณเตือนล่วงหน้าที่ดี จึงควรทำนายใหม่ทุกเดือนหรือทุกไตรมาส",
+              "Yes, and it is worth tracking - e.g. a \"Full Payer\" turning into a \"Revolver\" is a useful early warning. Re-score customers monthly or quarterly.") }}</p></details>
+    <details><summary>{{ t("ต้องสร้างโมเดลใหม่บ่อยแค่ไหน?", "How often should the model be rebuilt?") }}</summary>
+      <p>{{ t("แนะนำทุก 3-6 เดือน หรือเมื่อสัดส่วนลูกค้าในแต่ละกลุ่มเปลี่ยนไปมาก หลังสร้างใหม่ให้ตรวจว่าชื่อและกลยุทธ์ของกลุ่มยังตรงกับลักษณะจริง",
+              "Every 3-6 months, or when the share of customers per group shifts a lot. After rebuilding, check that the names and strategies still fit.") }}</p></details>
+    <details><summary>{{ t("ถ้าไม่มีข้อมูลครบทุกช่องล่ะ?", "What if I don't have every field?") }}</summary>
+      <p>{{ t("กรอก 8 ช่องหลักก็พอ ช่องที่เหลือระบบประมาณให้จากค่าทั่วไป แต่ถ้ากรอกครบ ผลจะแม่นกว่า", "The 8 main fields are enough; the rest are estimated from typical values. Filling everything gives a more precise result.") }}</p></details>
+    <details><summary>{{ t("ผลนี้แม่นแค่ไหน?", "How accurate is this?") }}</summary>
+      <p>{{ t("การจัดกลุ่มไม่มีคำตอบที่ถูกให้วัด \"ความแม่นยำ\" แบบข้อสอบ เราจึงวัดความคงที่ (" ~ ('%.2f'|format(metrics.stability_ari)) ~ " จาก 1) และความชัดของกลุ่มแทน ส่วนคุณค่าทางธุรกิจต้องพิสูจน์ด้วยผลแคมเปญจริง",
+              "Clustering has no answer key, so there is no exam-style \"accuracy\". We measure stability (" ~ ('%.2f'|format(metrics.stability_ari)) ~ " out of 1) and separation instead; the business value has to be proven by real campaign results.") }}</p></details>
+    <details><summary>{{ t("ทำไมไม่ใช้อายุ เพศ หรือรายได้?", "Why not use age, gender or income?") }}</summary>
+      <p>{{ t("ข้อมูลชุดนี้ไม่มี และการแบ่งตามพฤติกรรมช่วยลดอคติต่อกลุ่มประชากร อีกทั้งนำไปทำการตลาดได้ทันที", "The dataset does not include them; grouping by behaviour also avoids demographic bias and is directly actionable for marketing.") }}</p></details>
+    <details><summary>{{ t("เพิ่มข้อมูลอะไรแล้วจะดีขึ้น?", "What extra data would help most?") }}</summary>
+      <p>{{ t("รายการธุรกรรมแยกตามหมวดร้านค้า ช่องทางที่ใช้ (ออนไลน์/หน้าร้าน) ประวัติการผิดนัด และผลตอบรับจากแคมเปญที่ผ่านมา",
+              "Transactions by merchant category, channel (online/in-store), payment-delay history and responses to past campaigns.") }}</p></details>
+
+    <h2 class="section-title">{{ t("คำศัพท์", "Glossary") }}</h2>
+    <div class="card">
+      <dl class="gloss">
+        <dt>{{ t("กลุ่ม (Segment / Cluster)", "Segment / Cluster") }}</dt><dd>{{ t("ลูกค้าที่ใช้บัตรคล้ายกัน ระบบหาเองจากข้อมูล", "Customers who use their card in a similar way, found automatically from the data.") }}</dd>
+        <dt>{{ t("การจัดกลุ่ม (Clustering)", "Clustering") }}</dt><dd>{{ t('การเรียนรู้แบบไม่มีผู้สอน: หากลุ่มที่คล้ายกันโดยไม่มีคำตอบให้ก่อน', 'Unsupervised learning: finding similar groups without being given any answers.') }}</dd>
+        <dt>{{ t("จุดศูนย์กลาง (Centroid)", "Centroid") }}</dt><dd>{{ t('"ลูกค้าต้นแบบ" ของกลุ่ม คือค่าเฉลี่ยของสมาชิกในกลุ่ม', 'The "typical customer" of a group - the average of its members.') }}</dd>
+        <dt>{{ t("ตัวแปร (Feature)", "Feature") }}</dt><dd>{{ t("ข้อมูลแต่ละช่องของลูกค้า เช่น ยอดซื้อ ยอดกดเงินสด", "One piece of information about a customer, e.g. purchases or cash advance.") }}</dd>
+        <dt>Log transform</dt><dd>{{ t("ย่อตัวเลขที่ห่างกันมากให้ใกล้กันขึ้น เพื่อไม่ให้ลูกค้าที่ใช้จ่ายสุดโต่งไม่กี่คนครอบงำผล", "Shrinks very large numbers so a few extreme spenders do not dominate.") }}</dd>
+        <dt>{{ t("ปรับสเกล (Standardise)", "Standardise") }}</dt><dd>{{ t("ปรับทุกตัวแปรให้อยู่ในหน่วยเดียวกัน เพื่อให้มีน้ำหนักเท่ากัน", "Puts every variable on the same scale so each counts equally.") }}</dd>
+        <dt>PCA</dt><dd>{{ t("รวมตัวแปรที่ซ้ำซ้อนกันเป็นมิติใหม่ที่น้อยลง โดยเก็บข้อมูลส่วนใหญ่ไว้", "Combines overlapping variables into fewer new dimensions while keeping most of the information.") }}</dd>
+        <dt>Silhouette</dt><dd>{{ t("คะแนน -1 ถึง 1 บอกว่ากลุ่มแยกกันชัดแค่ไหน ยิ่งสูงยิ่งดี", "A -1 to 1 score of how clearly groups are separated; higher is better.") }}</dd>
+        <dt>Davies-Bouldin</dt><dd>{{ t("คะแนนความกระชับเทียบกับระยะห่างระหว่างกลุ่ม ยิ่งต่ำยิ่งดี", "Compactness relative to distance between groups; lower is better.") }}</dd>
+        <dt>{{ t("ความคงที่ (Stability, ARI)", "Stability (ARI)") }}</dt><dd>{{ t("สุ่มข้อมูลบางส่วนมาจัดกลุ่มใหม่ แล้วดูว่าได้ผลเหมือนเดิมแค่ไหน 1 = เหมือนเดิมทุกประการ", "Re-cluster random subsets and check how similar the result is; 1 = identical.") }}</dd>
+        <dt>Hopkins</dt><dd>{{ t("วัดว่าข้อมูลมีแนวโน้มเป็นกลุ่มจริงหรือกระจายแบบสุ่ม (เราเทียบกับข้อมูลที่สลับค่าแบบสุ่มด้วย)", "Tests whether the data tends to form groups or is randomly spread (we compare against shuffled data).") }}</dd>
+        <dt>{{ t("ความมั่นใจ (Confidence)", "Confidence") }}</dt><dd>{{ t("ลูกค้าอยู่ลึกในกลุ่มแค่ไหน เทียบกับกลุ่มที่ใกล้รองลงมา", "How deep inside its group a customer is, compared with the next closest group.") }}</dd>
+        <dt>{{ t("เปอร์เซ็นไทล์ (Percentile)", "Percentile") }}</dt><dd>{{ t("ตำแหน่งของค่าเทียบกับลูกค้าทั้งหมด เช่น เปอร์เซ็นไทล์ที่ 90 = สูงกว่าลูกค้า 90%", "Where a value ranks among all customers; the 90th percentile = higher than 90% of customers.") }}</dd>
+        <dt>{{ t("ค่าผิดปกติ (Outlier)", "Outlier") }}</dt><dd>{{ t("ลูกค้าที่มีค่าต่างจากคนส่วนใหญ่มาก เช่น ใช้จ่ายสูงผิดปกติ", "A customer whose values are far from almost everyone else's, e.g. unusually high spending.") }}</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ===================== TECH ===================== -->
+  <section class="panel" id="tech" role="tabpanel" aria-labelledby="tab-tech" hidden>
+    <div class="grid g2">
+      <div class="card">
+        <h2>{{ t("ตัวชี้วัดคุณภาพ", "Quality metrics") }}</h2>
+        <table>
+          <tr><th>{{ t("ตัวชี้วัด", "Metric") }}</th><th>{{ t("ค่า", "Value") }}</th><th>{{ t("อ่านอย่างไร", "How to read it") }}</th></tr>
+          <tr><td>Silhouette</td><td>{{ metrics.silhouette }}</td><td>{{ t("-1 ถึง 1 ยิ่งสูงยิ่งแยกกันชัด (0.2-0.3 = เหลื่อมกันพอสมควร)", "-1 to 1, higher = better separated (0.2-0.3 = noticeable overlap)") }}</td></tr>
+          <tr><td>Davies-Bouldin</td><td>{{ metrics.davies_bouldin }}</td><td>{{ t("ยิ่งต่ำยิ่งดี", "Lower is better") }}</td></tr>
+          <tr><td>Calinski-Harabasz</td><td>{{ metrics.calinski_harabasz }}</td><td>{{ t("ยิ่งสูงยิ่งดี (ใช้เทียบในข้อมูลชุดเดียวกัน)", "Higher is better (compare within the same data only)") }}</td></tr>
+          <tr><td>Stability (ARI)</td><td>{{ metrics.stability_ari }}</td><td>{{ t("1 = สุ่มข้อมูลใหม่ก็ได้กลุ่มเดิม", "1 = same segments on resampled data") }}</td></tr>
+          <tr><td>Hopkins</td><td>{{ metrics.hopkins }} / {{ metrics.hopkins_null }}</td><td>{{ t("ข้อมูลจริง เทียบ ข้อมูลที่สลับค่าแบบสุ่ม (ห่างกันมาก = มีกลุ่มจริง)", "Real data vs shuffled data (a bigger gap = real structure)") }}</td></tr>
+          <tr><td>PCA</td><td>{{ metrics.pca_components }} {{ t("มิติ", "dims") }}</td><td>{{ t("เก็บความแปรปรวน 90%", "Keeps 90% of the variance") }}</td></tr>
+        </table>
+      </div>
+      <div class="card">
+        <h2>{{ t("เรียกใช้ผ่าน API", "Use the API") }}</h2>
+        <p class="small muted">{{ t("ส่งเฉพาะข้อมูลหลักพร้อม fill_missing หรือส่งครบทุกช่อง", "Send only the essential fields with fill_missing, or send every field.") }}</p>
+<pre>POST /api/predict
+{"fill_missing": true,
+ "BALANCE": 1200, "CREDIT_LIMIT": 3000,
+ "PURCHASES": 300, "PURCHASES_FREQUENCY": 0.5,
+ "CASH_ADVANCE": 0, "CASH_ADVANCE_FREQUENCY": 0,
+ "PAYMENTS": 800, "PRC_FULL_PAYMENT": 0.1}</pre>
+        <p class="small muted" style="margin-top:8px">{{ t("อื่น ๆ:", "Also:") }} <code>GET /api/segments</code>, <code>GET /health</code></p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h2>{{ t("ค่าเฉลี่ยของแต่ละกลุ่ม", "Segment averages") }}</h2>
+      <div class="scroll">
+        <table>
+          <thead><tr><th class="name">{{ t("กลุ่ม", "Segment") }}</th><th>{{ t("ลูกค้า", "Customers") }}</th>
+            {% for col in segments[order[0]].profile.keys() %}<th>{{ t(field_info[col].th[0], field_info[col].en[0]) }}</th>{% endfor %}</tr></thead>
+          <tbody>
+            {% for cid in order %}{% set s = segments[cid] %}
+            <tr><td class="name"><span class="dot" style="--c: {{ palette[cid|int] }}"></span> {{ t(s.name_th, s.name) }}</td><td>{{ "{:,}".format(s.size) }}</td>
+              {% for v in s.profile.values() %}<td>{{ "{:,.2f}".format(v) }}</td>{% endfor %}</tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+  const SEGMENTS = {{ segments|tojson }};
+  const ORDER = {{ order|tojson }};
+  const PALETTE = {{ palette|tojson }};
+  const EXAMPLES = {{ examples|tojson }};
+  const MAP = {{ map_points|tojson }};
+  const ESSENTIAL = {{ essential|tojson }};
+  const OPTIONAL = {{ optional|tojson }};
+  const FIELD_INFO = {{ field_info|tojson }};
+  const color = (cid) => PALETTE[Number(cid) % PALETTE.length];
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  /* ---------- texts used by scripts ---------- */
+  const I18N = {
+    th: {
+      submit: 'ดูผล', computing: 'กำลังคำนวณ...', auto: 'ประมาณอัตโนมัติ',
+      people: 'คน', axisCustomers: 'จำนวนลูกค้า (คน)', dim1: 'มิติหลักที่ 1', dim2: 'มิติหลักที่ 2',
+      chartSizes: 'กราฟจำนวนลูกค้าแต่ละกลุ่ม', chartMap: 'แผนที่การกระจายตัวของลูกค้า',
+      clear: 'ชัดเจน', fairly: 'ค่อนข้างชัด', borderline: 'ก้ำกึ่ง',
+      runnerClose: (s) => `ลักษณะใกล้เคียงกับ "${s}" ด้วย ควรพิจารณาทั้งสองกลุ่ม`,
+      runner: (s) => `กลุ่มที่ใกล้เคียงรองลงมา: ${s}`,
+      noReasons: 'ค่าส่วนใหญ่อยู่ระดับกลาง ๆ ไม่มีจุดที่โดดเด่นมาก',
+      required: 'กรุณากรอก: ', notNumber: (f) => `"${f}" ต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป`,
+      range01: (f) => `"${f}" ต้องอยู่ระหว่าง 0 ถึง 1`, failed: 'คำนวณไม่สำเร็จ: ', genericError: 'เกิดข้อผิดพลาด',
+      title: 'กลุ่มลูกค้าบัตรเครดิต',
+    },
+    en: {
+      submit: 'Show result', computing: 'Calculating...', auto: 'Estimated automatically',
+      people: 'customers', axisCustomers: 'Number of customers', dim1: 'Main dimension 1', dim2: 'Main dimension 2',
+      chartSizes: 'Bar chart of customers per segment', chartMap: 'Map of how customers are spread',
+      clear: 'Clear', fairly: 'Fairly clear', borderline: 'Borderline',
+      runnerClose: (s) => `Also close to "${s}" - consider both segments`,
+      runner: (s) => `Next closest segment: ${s}`,
+      noReasons: 'Most values are around the middle - nothing stands out strongly',
+      required: 'Please fill in: ', notNumber: (f) => `"${f}" must be a number of 0 or more`,
+      range01: (f) => `"${f}" must be between 0 and 1`, failed: 'Could not calculate: ', genericError: 'Something went wrong',
+      title: 'Credit Card Customer Segments',
+    },
+  };
+  let LANG = document.documentElement.getAttribute('data-lang') || 'th';
+  const tr = (key) => I18N[LANG][key];
+  const segName = (cid) => LANG === 'th' ? SEGMENTS[cid].name_th : SEGMENTS[cid].name;
+  const fieldLabel = (name) => FIELD_INFO[name][LANG][0];
+
+  function setLang(lang) {
+    LANG = lang;
+    document.documentElement.setAttribute('data-lang', lang);
+    document.documentElement.lang = lang;
+    try { localStorage.setItem('lang', lang); } catch (e) { /* private mode: ignore */ }
+    document.querySelectorAll('[data-set-lang]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.setLang === lang)));
+    document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = tr(el.dataset.i18n); });
+    document.querySelectorAll('[data-ph]').forEach(el => { el.placeholder = tr(el.dataset.ph); });
+    document.querySelectorAll('[data-aria]').forEach(el => { el.setAttribute('aria-label', tr(el.dataset.aria)); });
+    document.title = tr('title');
+    if (chartsReady) { destroyCharts(); initCharts(); }
+    if (lastResult) render(lastResult);
+    errorBox.textContent = '';
+  }
+  document.querySelectorAll('[data-set-lang]').forEach(b => b.addEventListener('click', () => setLang(b.dataset.setLang)));
+
+  /* ---------- tabs (with #hash so a tab can be linked) ---------- */
+  const tabs = [...document.querySelectorAll('.tab')];
+  const tabBar = document.querySelector('.tabs');
+  // fade the tab bar's edge when more tabs are hidden off-screen (phones)
+  function updateTabFade() {
+    tabBar.classList.toggle('more-left', tabBar.scrollLeft > 4);
+    tabBar.classList.toggle('more-right', tabBar.scrollLeft + tabBar.clientWidth < tabBar.scrollWidth - 4);
+  }
+  tabBar.addEventListener('scroll', updateTabFade, { passive: true });
+  window.addEventListener('resize', updateTabFade);
+
+  function showTab(id, push = true) {
+    if (!tabs.some(t => t.getAttribute('aria-controls') === id)) id = 'overview';
+    tabs.forEach(t => t.setAttribute('aria-selected', String(t.getAttribute('aria-controls') === id)));
+    document.querySelectorAll('.panel').forEach(p => { p.hidden = p.id !== id; });
+    if (push) history.replaceState(null, '', location.pathname + location.search + '#' + id);
+    // keep the active tab visible inside the scrollable tab bar
+    const active = tabs.find(t => t.getAttribute('aria-controls') === id);
+    tabBar.scrollTo({ left: active.offsetLeft - (tabBar.clientWidth - active.offsetWidth) / 2, behavior: push ? 'smooth' : 'auto' });
+    // if the user had scrolled down, jump back to the top of the new tab (just under the header)
+    const headerEnd = document.querySelector('header').offsetHeight;
+    if (push && window.scrollY > headerEnd) window.scrollTo({ top: headerEnd });
+    if (id === 'overview') initCharts();
+    updateTabFade();
+  }
+  tabs.forEach(t => t.addEventListener('click', () => showTab(t.getAttribute('aria-controls'))));
+  document.querySelector('.tabs').addEventListener('keydown', (e) => {
+    const i = tabs.indexOf(document.activeElement);
+    if (i < 0 || !['ArrowRight', 'ArrowLeft'].includes(e.key)) return;
+    const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+    next.focus(); next.click();
+  });
+  document.querySelectorAll('[data-goto]').forEach(b => b.addEventListener('click', () => { showTab(b.dataset.goto); window.scrollTo(0, 0); }));
+  document.querySelectorAll('.flow a').forEach(a => a.addEventListener('click', (e) => {
+    e.preventDefault();
+    document.querySelector(a.getAttribute('href')).scrollIntoView({ behavior: 'smooth' });
+  }));
+
+  /* ---------- charts ---------- */
+  let chartsReady = false;
+  let charts = [];
+  function destroyCharts() { charts.forEach(c => c.destroy()); charts = []; chartsReady = false; document.getElementById('mapLegend').innerHTML = ''; }
+  function initCharts() {
+    if (chartsReady || typeof Chart === 'undefined' || document.getElementById('overview').hidden) return;
+    chartsReady = true;
+    const narrow = window.innerWidth < 560;
+    Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+    Chart.defaults.font.size = narrow ? 11 : 12;
+    Chart.defaults.color = css('--muted');
+    const grid = css('--line');
+
+    charts.push(new Chart(document.getElementById('sizeChart'), {
+      type: 'bar',
+      data: { labels: ORDER.map(segName),
+              datasets: [{ data: ORDER.map(c => SEGMENTS[c].size), backgroundColor: ORDER.map(color), borderRadius: 4 }] },
+      options: {
+        indexAxis: 'y', maintainAspectRatio: false,
+        plugins: { legend: { display: false },
+          tooltip: { callbacks: { label: (ctx) => {
+            const s = SEGMENTS[ORDER[ctx.dataIndex]];
+            return ` ${s.size.toLocaleString()} ${tr('people')} (${(s.share * 100).toFixed(1)}%)`;
+          } } } },
+        scales: { x: { grid: { color: grid }, title: { display: true, text: tr('axisCustomers') } }, y: { grid: { display: false } } }
+      }
+    }));
+
+    const datasets = ORDER.map(c => ({
+      label: segName(c),
+      data: MAP.filter(p => String(p[2]) === c).map(p => ({ x: p[0], y: p[1] })),
+      backgroundColor: color(c) + 'b3', pointRadius: narrow ? 1.7 : 2.2, pointHoverRadius: 4
+    }));
+    charts.push(new Chart(document.getElementById('mapChart'), {
+      type: 'scatter', data: { datasets },
+      options: {
+        maintainAspectRatio: false, animation: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => ' ' + ctx.dataset.label } } },
+        scales: { x: { grid: { color: grid }, ticks: { display: false }, title: { display: true, text: tr('dim1') } },
+                  y: { grid: { color: grid }, ticks: { display: false }, title: { display: true, text: tr('dim2') } } }
+      }
+    }));
+    const legend = document.getElementById('mapLegend');
+    ORDER.forEach(c => {
+      const item = document.createElement('span');
+      const dot = document.createElement('span');
+      dot.className = 'dot'; dot.style.setProperty('--c', color(c));
+      item.append(dot, segName(c));
+      legend.append(item);
+    });
+  }
+
+  /* ---------- prediction ---------- */
+  const form = document.getElementById('predictForm');
+  const errorBox = document.getElementById('formError');
+  const resultBox = document.getElementById('result');
+  const btn = document.getElementById('submitBtn');
+  let lastResult = null;
+
+  function loadExample(cid) {
+    for (const [k, v] of Object.entries(EXAMPLES[cid])) {
+      const input = form.elements[k];
+      if (input) input.value = v === null ? '' : v;
+    }
+    showTab('predict');
+    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    predict();
+  }
+  document.querySelectorAll('[data-example]').forEach(b => b.addEventListener('click', () => loadExample(b.dataset.example)));
+
+  const confidenceLabel = (c) => c >= 0.3 ? tr('clear') : c >= 0.15 ? tr('fairly') : tr('borderline');
+
+  async function predict() {
+    errorBox.textContent = '';
+    const body = { fill_missing: true };
+    const missing = [];
+    for (const el of form.elements) {
+      if (!el.name) continue;
+      const v = el.value.trim();
+      if (v === '') {
+        if (ESSENTIAL.includes(el.name) && !OPTIONAL.includes(el.name)) missing.push(fieldLabel(el.name));
+        body[el.name] = null;
+      } else {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 0) { errorBox.textContent = I18N[LANG].notNumber(fieldLabel(el.name)); return; }
+        if (el.max && n > Number(el.max)) { errorBox.textContent = I18N[LANG].range01(fieldLabel(el.name)); return; }
+        body[el.name] = n;
+      }
+    }
+    if (missing.length) { errorBox.textContent = tr('required') + missing.join(', '); return; }
+
+    btn.disabled = true; btn.textContent = tr('computing');
+    try {
+      const res = await fetch('/api/predict', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || tr('genericError'));
+      lastResult = data.results[0];
+      render(lastResult);
+      resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } catch (err) {
+      errorBox.textContent = tr('failed') + err.message;
+    } finally {
+      btn.disabled = false; btn.textContent = tr('submit');
+    }
+  }
+  form.addEventListener('submit', (e) => { e.preventDefault(); predict(); });
+
+  function render(r) {
+    const th = LANG === 'th';
+    resultBox.style.setProperty('--c', color(r.cluster));
+    document.getElementById('rName').textContent = th ? r.segment_th : r.segment;
+    document.getElementById('rDesc').textContent = th ? r.description_th : r.description_en;
+    const pct = Math.round(r.confidence * 100);
+    document.getElementById('rConfText').textContent = `${confidenceLabel(r.confidence)} (${pct}%)`;
+    document.getElementById('rMeter').style.width = Math.max(4, pct) + '%';
+    const runnerUp = th ? r.second_best_segment_th : r.second_best_segment;
+    document.getElementById('rRunner').textContent = r.confidence < 0.15 ? I18N[LANG].runnerClose(runnerUp) : I18N[LANG].runner(runnerUp);
+    const ul = document.getElementById('rReasons');
+    ul.innerHTML = '';
+    if (!r.reasons.length) {
+      const li = document.createElement('li'); li.textContent = tr('noReasons'); ul.append(li);
+    }
+    r.reasons.forEach(x => {
+      const li = document.createElement('li');
+      const arrow = document.createElement('span');
+      arrow.className = x.dir; arrow.textContent = x.dir === 'up' ? '▲ ' : '▼ ';
+      li.append(arrow, th ? x.text : x.text_en);
+      ul.append(li);
+    });
+    document.getElementById('rStrategy').textContent = th ? r.strategy_th : r.strategy;
+    resultBox.classList.add('show');
+  }
+
+  setLang(LANG);
+  showTab(location.hash.slice(1) || 'overview', false);
+  // a #tab link would make the browser jump past the header; start at the top instead
+  if (location.hash) {
+    window.scrollTo(0, 0);
+    window.addEventListener('load', () => window.scrollTo(0, 0), { once: true });
+  }
+</script>
+</body>
+</html>

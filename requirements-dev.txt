@@ -1,0 +1,7 @@
+# Development: notebook, plots and tests on top of the runtime dependencies.
+-r requirements.txt
+matplotlib>=3.7
+seaborn>=0.12
+pytest>=7.4
+ipykernel>=6.25
+nbconvert>=7.0

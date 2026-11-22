@@ -1,0 +1,18 @@
+# Keep the build context small: only src/, app/, data/raw/, models/ and requirements.txt are needed.
+.venv/
+.git/
+.github/
+.vscode/
+.idea/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+*.ipynb
+notebooks/
+reports/
+tests/
+data/processed/
+Dockerfile
+.dockerignore
+README.md

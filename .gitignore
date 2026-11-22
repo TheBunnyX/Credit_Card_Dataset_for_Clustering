@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+.ipynb_checkpoints/
+.pytest_cache/
+data/processed/
+# models/ is committed on purpose: the Docker image serves this trained model
+# (pinned versions in requirements.txt keep it loadable). Retrain with `python -m src.train`.
